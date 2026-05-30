@@ -178,7 +178,7 @@ def log_incident_report(report: dict) -> dict:
 root_agent = Agent(
     name="geopolitical_health_agent",
     model=Gemini(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction="""You are a Geopolitical Health Supply Chain Risk Agent.
@@ -234,5 +234,5 @@ After all 7 steps, provide a structured summary:
 
 app = App(
     root_agent=root_agent,
-    name="geopolitical_health_agent_app",
+    name="app",
 )

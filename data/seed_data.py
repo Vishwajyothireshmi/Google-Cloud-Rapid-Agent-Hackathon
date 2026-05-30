@@ -3,6 +3,8 @@ import random
 import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
+import sys
+
 
 load_dotenv()
 
@@ -333,16 +335,21 @@ def generate_health_systems():
 
 def seed_elastic(events):
     try:
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        ))
         from integrations.elastic_client import get_elastic
         es = get_elastic()
         index = os.getenv("ELASTIC_INDEX", "geopolitical-events")
         for event in events:
-            event["timestamp"] = datetime.datetime.utcnow().isoformat()
-            es.index(index=index, body=event)
+            event["timestamp"] = datetime.datetime.now(
+                datetime.timezone.utc).isoformat()
+            es.index(index=index, document=event)
         print(f"✅ Elastic events: {len(events)} records")
     except Exception as e:
         print(f"⚠️  Elastic seeding failed: {e}")
-
 
 def seed_database():
     print("🌱 Generating data...\n")
