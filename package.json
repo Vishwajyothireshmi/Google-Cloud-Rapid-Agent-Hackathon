@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@mongodb-js/mongodb-mcp-server": "^0.0.3",
+    "mongodb-mcp-server": "^1.11.0"
+  }
+}

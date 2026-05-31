@@ -418,24 +418,41 @@ def generate_suppliers():
             })
             sid += 1
 
-    for company in EUROPEAN_COMPANIES:
+    # Guarantee critical APIs have European alternatives
+    CRITICAL_APIS = [
+        "Amoxicillin", "Metformin", "Ciprofloxacin",
+        "Paracetamol", "Azithromycin", "Atorvastatin",
+        "Dexamethasone", "Insulin Glargine", "Ibuprofen",
+        "Ondansetron"
+    ]
+
+    for i, company in enumerate(EUROPEAN_COMPANIES):
         country = company.split()[-1]
         if country not in COUNTRIES:
             country = "Germany"
-        for api in random.sample(APIS, random.randint(1, 3)):
+
+        # Guarantee one critical API per European company
+        guaranteed = [CRITICAL_APIS[i % len(CRITICAL_APIS)]]
+        random_apis = random.sample(
+            [a for a in APIS if a not in guaranteed],
+            random.randint(1, 2)
+        )
+        apis_to_assign = guaranteed + random_apis
+
+        for api in apis_to_assign:
             suppliers.append({
-                "supplier_id":         f"SUP{sid:03d}",
-                "name":                company,
-                "country":             country,
-                "type":                "API_manufacturer",
-                "api_name":            api,
-                "reliability_score":   round(random.uniform(0.90, 0.98), 2),
-                "lead_time_days":      random.randint(15, 30),
-                "annual_capacity_kg":  random.randint(2000, 20000),
-                "warehouse_stock_kg":  random.randint(200, 5000),    # GAP 4 FIX
-                "export_status":       "active",                     # GAP 3 FIX
-                "gmp_certified":       True,
-                "last_audit":          "2024-03-10",
+                "supplier_id":        f"SUP{sid:03d}",
+                "name":               company,
+                "country":            country,
+                "type":               "API_manufacturer",
+                "api_name":           api,
+                "reliability_score":  round(random.uniform(0.90, 0.98), 2),
+                "lead_time_days":     random.randint(15, 30),
+                "annual_capacity_kg": random.randint(2000, 20000),
+                "warehouse_stock_kg": random.randint(200, 5000),
+                "export_status":      "active",
+                "gmp_certified":      True,
+                "last_audit":         "2024-03-10",
             })
             sid += 1
 

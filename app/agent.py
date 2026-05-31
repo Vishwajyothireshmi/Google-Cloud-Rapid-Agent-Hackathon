@@ -7,6 +7,7 @@ from google.adk.apps import App
 from google.adk.models import Gemini
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 from mcp import StdioServerParameters
 import google.auth
@@ -22,9 +23,9 @@ from integrations.mongodb_client import get_db
 from integrations.elastic_client import get_elastic
 from integrations.arize_client import trace_step
 
+from app.agents.stock_forecasting import stock_forecasting_agent
+
 # ── MongoDB MCP Toolset ───────────────────────────────────────────────────────
-# This gives Gemini direct access to MongoDB via MCP protocol
-# Gemini can use find, aggregate, insert operations natively
 mongodb_toolset = McpToolset(
     connection_params=StdioConnectionParams(
         server_params=StdioServerParameters(
@@ -38,7 +39,7 @@ mongodb_toolset = McpToolset(
     ),
 )
 
-# ── Tool 1: Detect geopolitical event via Elastic ─────────────────────────────
+# ── Tool 1 ────────────────────────────────────────────────────────────────────
 def detect_geopolitical_event(country: str) -> dict:
     """Search Elastic for geopolitical events affecting a country.
     Args:
@@ -69,8 +70,7 @@ def detect_geopolitical_event(country: str) -> dict:
     except Exception as e:
         return {"error": str(e), "country": country}
 
-
-# ── Tool 2: Find APIs sourced from affected country ───────────────────────────
+# ── Tool 2 ────────────────────────────────────────────────────────────────────
 def find_affected_apis(country: str) -> list:
     """Query MongoDB suppliers for all APIs manufactured in a country.
     Args:
@@ -92,8 +92,7 @@ def find_affected_apis(country: str) -> list:
     ))
     return results
 
-
-# ── Tool 3: Find finished drugs that depend on at-risk APIs ───────────────────
+# ── Tool 3 ────────────────────────────────────────────────────────────────────
 def find_drugs_at_risk(api_names: list[str]) -> list:
     """Find finished drugs that depend on given APIs.
     Args:
@@ -111,15 +110,13 @@ def find_drugs_at_risk(api_names: list[str]) -> list:
     ))
     return results
 
-
-# ── Tool 4: Check inventory stock levels ──────────────────────────────────────
+# ── Tool 4 ────────────────────────────────────────────────────────────────────
 def assess_inventory_risk(drug_names: list[str]) -> list:
     """Check current inventory levels at hospitals for affected drugs.
     Args:
         drug_names: List of drug names to check
     Returns:
-        List of drugs with stock details — days remaining,
-        hospital, country, daily consumption
+        List of drugs with stock details
     """
     trace_step("assess_inventory", {"drugs": str(drug_names)})
     db = get_db()
@@ -134,11 +131,10 @@ def assess_inventory_risk(drug_names: list[str]) -> list:
          "daily_consumption": 1,
          "days_of_supply": 1,
          "reorder_threshold": 1}
-    ).sort("days_of_supply", 1))  # worst first
+    ).sort("days_of_supply", 1))
     return results
 
-
-# ── Tool 5: Find vulnerable populations ───────────────────────────────────────
+# ── Tool 5 ────────────────────────────────────────────────────────────────────
 def find_vulnerable_populations(
         drug_names: list[str],
         countries: list[str]) -> list:
@@ -166,8 +162,7 @@ def find_vulnerable_populations(
     ))
     return results
 
-
-# ── Tool 6: Find alternative suppliers ────────────────────────────────────────
+# ── Tool 6 ────────────────────────────────────────────────────────────────────
 def find_alternative_suppliers(
         api_name: str,
         exclude_country: str) -> list:
@@ -197,8 +192,7 @@ def find_alternative_suppliers(
     ).sort("reliability_score", -1).limit(3))
     return results
 
-
-# ── Tool 7: Log incident report to MongoDB ────────────────────────────────────
+# ── Tool 7 ────────────────────────────────────────────────────────────────────
 def log_incident_report(
         event_type: str,
         country: str,
@@ -229,7 +223,6 @@ def log_incident_report(
         "status":      "logged",
         "message":     "Incident report saved. Pending human review."
     }
-
 
 # ── Agent definition ──────────────────────────────────────────────────────────
 root_agent = Agent(
@@ -283,7 +276,7 @@ STEP 7: log_incident_report(event_type, country,
   Save the complete assessment to MongoDB.
 
 After completing all 7 steps present EXACTLY
-this output format — nothing more, nothing less:
+this output format:
 
 ════════════════════════════════════════
 GEOPOLITICAL HEALTH SUPPLY CHAIN REPORT
@@ -296,40 +289,48 @@ Severity: [severity]
 
 APIs AT RISK:
 [api_name], [api_name], [api_name]...
-(these are raw pharmaceutical ingredients
- no longer available from [country])
 
 DRUGS AFFECTED:
-[drug_name] — made from [api_name],
-[drug_name] — made from [api_name],
 [drug_name] — made from [api_name]
-(list every drug and its API dependency)
+[drug_name] — made from [api_name]
 
 POPULATIONS EXPOSED:
 [Country]: [sum of population_served] patients
 [Country]: [sum of population_served] patients
-(sum all hospitals per country that depend
- on any of the affected drugs)
 
 ALTERNATIVE SUPPLIERS:
-[API name] — [Country1], [Country2], [Country3]
-[API name] — [Country1], [Country2] 
-(just list the API and which countries 
- can supply it as alternatives)
-
+[API name] — [Country1] (lead_time: X days), [Country2] (lead_time: Y days)
+[API name] — [Country1] (lead_time: X days)
 
 INCIDENT LOGGED: [incident_id]
 ════════════════════════════════════════
 
-STRICT RULES — never break these:
+STRICT RULES:
 1. Never use the words CRITICAL, HIGH, MEDIUM
 2. Never mention hospital IDs (HS001 etc)
 3. Never mention warehouse names
-4. Always sum population per country
-   not per individual hospital
+4. Always sum population per country not per hospital
 5. Always show which API each drug depends on
-6. Always show lead_time for every alternative
+6. Always show lead_time for every alternative supplier
 7. Always complete all 7 steps before responding
+8. After the incident logged line ALWAYS continue
+   to Phase 2 — never stop there
+
+PHASE 2 — ADVANCED ANALYSIS:
+After presenting Phase 1 report immediately call
+stock_forecasting_agent with this EXACT message:
+
+"drug_names: [comma separated drug names from Step 3 - max 10]
+countries: [comma separated countries from Step 5]
+disrupted_country: [country from Step 1]"
+
+Example format:
+"drug_names: Glucophage,Formet,Ciprobay,Amoxil,Flagyl,Azee,Panadol,Lipitor,Zithromax,Keflex
+countries: Bangladesh,Nepal,Pakistan,Myanmar,Sri Lanka,Nigeria,Kenya,Ethiopia,Tanzania,Uganda
+disrupted_country: India"
+
+Replace with actual values from your analysis.
+The stock_forecasting_agent handles everything else.
 """,
     tools=[
         detect_geopolitical_event,
@@ -340,6 +341,10 @@ STRICT RULES — never break these:
         find_alternative_suppliers,
         log_incident_report,
         mongodb_toolset,
+        AgentTool(
+            agent=stock_forecasting_agent,
+            skip_summarization=True
+        ),
     ],
 )
 
