@@ -200,3 +200,4 @@ my_env.tfvars
 
 # A2A Inspector
 tools/a2a-inspector/
+google-cloud-cli-darwin-arm.tar.gz
