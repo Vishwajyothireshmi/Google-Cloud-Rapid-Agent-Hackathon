@@ -41,7 +41,7 @@ disrupted_country: India"""
             role="user",
             parts=[types.Part(text=message)]
         ),
-        run_config=RunConfig(max_llm_calls=500)
+        run_config=RunConfig(max_llm_calls=1000)
     ):
         if hasattr(event, "content") and event.content:
             for part in event.content.parts:

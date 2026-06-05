@@ -4,11 +4,28 @@ import datetime
 from google.adk.agents import Agent
 from google.adk.models import Gemini
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.genai import types
+from mcp import StdioServerParameters
 from integrations.mongodb_client import get_db
 from integrations.arize_client import trace_step
 
 from app.agents.procurement import procurement_agent
+
+# ── MongoDB MCP for Stock Forecasting Agent ───────────────────────────────────
+stock_mongodb_toolset = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command="npx",
+            args=["-y", "mongodb-mcp-server"],
+            env={
+                "MDB_MCP_CONNECTION_STRING": os.getenv("MONGODB_URI"),
+            },
+        ),
+        timeout=30,
+    ),
+)
 
 
 # ══════════════════════════════════════════════════════
@@ -301,7 +318,7 @@ def calculate_financial_and_pick_best(
 
 stock_forecasting_agent = Agent(
     name="stock_forecasting_agent",
-    description="Coordinates Phase 2 supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, calculates financial impact, picks best supplier, files procurement orders",
+    description="Coordinates Phase 2 supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, calculates financial impact, picks best supplier, files procurement orders. Has direct MongoDB MCP access for ad-hoc queries.",
     model=Gemini(
         model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -315,6 +332,9 @@ You receive a message with:
 - disrupted_country: country where disruption occurred
 
 Parse these and follow ALL steps strictly.
+Use the custom tools for the standard workflow.
+Use MongoDB MCP tools for any additional database
+queries needed beyond the standard workflow.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STOCK FORECASTING ANALYSIS
@@ -429,5 +449,6 @@ CRITICAL RULES:
         calculate_stockout_forecast,
         calculate_financial_and_pick_best,
         AgentTool(agent=procurement_agent),
+        stock_mongodb_toolset,
     ],
 )

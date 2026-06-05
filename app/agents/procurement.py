@@ -3,9 +3,26 @@ import os
 import datetime
 from google.adk.agents import Agent
 from google.adk.models import Gemini
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.genai import types
+from mcp import StdioServerParameters
 from integrations.mongodb_client import get_db
 from integrations.arize_client import trace_step
+
+# ── MongoDB MCP for Procurement Agent ─────────────────────────────────────────
+procurement_mongodb_toolset = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command="npx",
+            args=["-y", "mongodb-mcp-server"],
+            env={
+                "MDB_MCP_CONNECTION_STRING": os.getenv("MONGODB_URI"),
+            },
+        ),
+        timeout=30,
+    ),
+)
 
 
 # ══════════════════════════════════════════════════════
@@ -50,7 +67,6 @@ def file_purchase_order_per_combo(
     })
     db = get_db()
 
-    # population_served here is already patients_at_risk
     patients_at_risk = population_served
     daily_consumption = max(1, patients_at_risk // 365)
     days_needed = 90
@@ -130,7 +146,7 @@ def file_purchase_order_per_combo(
 
 procurement_agent = Agent(
     name="procurement_agent",
-    description="Files draft purchase orders to MongoDB for each drug×country combo and returns order IDs",
+    description="Files draft purchase orders to MongoDB for each drug×country combo. Has direct MongoDB MCP access for order verification and ad-hoc queries.",
     model=Gemini(
         model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -139,6 +155,9 @@ procurement_agent = Agent(
 filing purchase orders — one per drug×country combo.
 
 You receive drug×country combos with chosen suppliers.
+Use the custom tool to file orders.
+Use MongoDB MCP tools if you need to verify orders
+or run additional database queries.
 
 For EACH combo:
 → Call file_purchase_order_per_combo() with all details
@@ -169,5 +188,6 @@ RULES:
 - Do not skip any combo""",
     tools=[
         file_purchase_order_per_combo,
+        procurement_mongodb_toolset,
     ],
 )
