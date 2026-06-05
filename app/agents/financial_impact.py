@@ -34,7 +34,7 @@ def calculate_financial_impact_per_combo(
     })
 
     affected_patients = int(population_served * 0.15)
-    daily_cost_per_patient = 45
+    daily_cost_per_patient = 4.50
 
     # Cost of doing nothing
     direct_cost = (

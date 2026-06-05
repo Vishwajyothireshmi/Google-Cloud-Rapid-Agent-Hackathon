@@ -8,7 +8,6 @@ from google.genai import types
 from integrations.mongodb_client import get_db
 from integrations.arize_client import trace_step
 
-from app.agents.financial_impact import financial_impact_agent
 from app.agents.procurement import procurement_agent
 
 
@@ -94,7 +93,7 @@ def calculate_stockout_forecast(
     Args:
         drug_name: Name of the drug
         api_name: Active pharmaceutical ingredient
-        disrupted_country: Country where disruption occurred (exclude from suppliers)
+        disrupted_country: Country where disruption occurred
         destination_country: Affected import country
         population_served: Population depending on this drug
         disruption_duration_days: Expected disruption length
@@ -134,7 +133,6 @@ def calculate_stockout_forecast(
         datetime.timedelta(days=max(1, days_until_critical - 7))
     ).strftime("%Y-%m-%d")
 
-    # Exclude disrupted country not destination country
     suppliers = list(db.suppliers.find(
         {
             "api_name": api_name,
@@ -164,67 +162,139 @@ def calculate_stockout_forecast(
     }
 
 
-def pick_best_supplier_for_combo(
+def calculate_financial_and_pick_best(
         drug_name: str,
-        country: str,
-        financial_rankings: list[dict]) -> dict:
-    """Pick best supplier for a drug×country combo.
-    Scores equally: ROI (33%) + lead time (33%) + reliability (33%).
+        api_name: str,
+        destination_country: str,
+        population_served: int,
+        disruption_duration_days: int,
+        suppliers: list[dict]) -> dict:
+    """Calculate financial impact AND pick best supplier in one step.
+    Ensures real ROI is always used for supplier selection.
     Args:
-        drug_name: Drug being analyzed
-        country: Affected country
-        financial_rankings: Ranked suppliers from financial agent
+        drug_name: Drug at risk
+        api_name: Active ingredient
+        destination_country: Affected country
+        population_served: Population served (total not patients)
+        disruption_duration_days: Duration of disruption in days
+        suppliers: Alternative suppliers list from stockout forecast
     Returns:
-        Best supplier with combined score and full reasoning
+        Financial analysis + best supplier selection with real ROI
     """
-    trace_step("pick_best", {
+    trace_step("financial_and_pick", {
         "drug": drug_name,
-        "country": country
+        "country": destination_country
     })
 
-    if not financial_rankings:
+    if not suppliers:
         return {
-            "error": f"No suppliers for {drug_name} | {country}"
+            "error": f"No suppliers for {drug_name} | {destination_country}"
         }
 
-    scored = []
-    for s in financial_rankings:
-        roi = s.get("roi_percent", 0)
-        lead_time = s.get("lead_time_days", 60)
-        reliability = s.get("reliability_score", 0.5)
+    # Calculate stockout cost
+    affected_patients = int(population_served * 0.15)
+    daily_cost_per_patient = 4.50
 
-        roi_score = min(100, roi / 3)
+    direct_cost = (
+        daily_cost_per_patient *
+        affected_patients *
+        disruption_duration_days
+    )
+    emergency_cost = direct_cost * 0.30
+    productivity_loss = direct_cost * 0.20
+    total_stockout_cost = (
+        direct_cost + emergency_cost + productivity_loss
+    )
+
+    # Cost factors by supplier country
+    country_cost_factor = {
+        "Germany": 1.15, "Switzerland": 1.20,
+        "Netherlands": 1.12, "Italy": 1.08,
+        "Spain": 1.05, "Japan": 1.18,
+        "USA": 1.25, "South Korea": 1.10,
+        "China": 0.85, "India": 0.80,
+    }
+
+    days_needed = 90
+    daily_consumption = max(1, affected_patients // 365)
+    quantity_needed = daily_consumption * days_needed
+
+    # Score each supplier
+    ranked = []
+    for s in suppliers:
+        supplier_country = s.get("country", "Unknown")
+        supplier_name = s.get("name", supplier_country)
+        lead_time = s.get("lead_time_days", 30)
+        reliability = s.get("reliability_score", 0.8)
+
+        base_cost = 2.50
+        factor = country_cost_factor.get(supplier_country, 1.0)
+        unit_cost = base_cost * factor
+        if lead_time < 20:
+            unit_cost *= 1.10
+
+        switching_cost = unit_cost * quantity_needed
+        logistics_cost = switching_cost * 0.08
+        total_cost = switching_cost + logistics_cost
+        savings = total_stockout_cost - total_cost
+        roi = (savings / total_cost * 100) if total_cost > 0 else 0
+
+        # Combined score
+        roi_score = min(100, roi / 100)
+        #roi_score = min(100, roi / 3)
         lead_time_score = max(0, 100 - lead_time)
         reliability_score = reliability * 100
-
         combined = (
             roi_score * 0.33 +
             lead_time_score * 0.33 +
             reliability_score * 0.33
         )
 
-        scored.append({
-            **s,
-            "combined_score": round(combined, 2),
+        ranked.append({
+            "supplier_id": s.get("supplier_id", ""),
+            "supplier_name": supplier_name,
+            "supplier_country": supplier_country,
+            "reliability_score": reliability,
+            "lead_time_days": lead_time,
+            "unit_cost_usd": round(unit_cost, 2),
+            "total_cost_usd": round(total_cost, 2),
+            "cost_of_inaction_usd": round(total_stockout_cost, 2),
+            "projected_savings_usd": round(savings, 2),
+            "roi_percent": round(roi, 1),
             "roi_score": round(roi_score, 2),
             "lead_time_score": round(lead_time_score, 2),
-            "reliability_score_normalized": round(reliability_score, 2)
+            "reliability_score_normalized": round(reliability_score, 2),
+            "combined_score": round(combined, 2),
+            "recommendation": (
+                "STRONGLY RECOMMENDED" if roi > 200
+                else "RECOMMENDED" if roi > 100
+                else "CONSIDER" if roi > 0
+                else "NOT RECOMMENDED"
+            )
         })
 
-    scored.sort(key=lambda x: x["combined_score"], reverse=True)
-    best = scored[0]
+    ranked.sort(key=lambda x: x["combined_score"], reverse=True)
+    best = ranked[0]
 
     return {
         "drug_name": drug_name,
-        "country": country,
+        "api_name": api_name,
+        "destination_country": destination_country,
+        "population_served": population_served,
+        "patients_at_risk": affected_patients,
+        "cost_of_inaction_usd": round(total_stockout_cost, 2),
+        "direct_health_cost_usd": round(direct_cost, 2),
+        "emergency_care_cost_usd": round(emergency_cost, 2),
+        "productivity_loss_usd": round(productivity_loss, 2),
+        "all_supplier_options": ranked,
         "best_supplier": best,
-        "all_scored_options": scored,
         "selection_reasoning": (
-            f"Selected {best.get('supplier_name', best.get('supplier_country', 'Unknown'))} "
+            f"Selected {best['supplier_name']} ({best['supplier_country']}) "
             f"— Combined: {best['combined_score']}/100 "
-            f"(ROI: {best['roi_score']:.0f}/100, "
-            f"Lead time: {best['lead_time_score']:.0f}/100, "
-            f"Reliability: {best['reliability_score_normalized']:.0f}/100)"
+            f"(ROI: {best['roi_score']:.0f}/100 [{best['roi_percent']:.0f}%], "
+            f"Lead time: {best['lead_time_score']:.0f}/100 [{best['lead_time_days']} days], "
+            f"Reliability: {best['reliability_score_normalized']:.0f}/100 "
+            f"[{best['reliability_score']}])"
         )
     }
 
@@ -235,7 +305,7 @@ def pick_best_supplier_for_combo(
 
 stock_forecasting_agent = Agent(
     name="stock_forecasting_agent",
-    description="Coordinates full supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, gets financial analysis, picks best supplier, triggers procurement orders",
+    description="Coordinates full supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, calculates financial impact, picks best supplier, triggers procurement orders",
     model=Gemini(
         model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -243,31 +313,31 @@ stock_forecasting_agent = Agent(
     instruction="""You are the Stock Forecasting Agent — coordinator
 of Phase 2 supply chain risk analysis.
 
-You receive a message containing:
-- drug_names: comma separated list of drug names
-- countries: comma separated list of affected countries
-- disrupted_country: the country where disruption occurred
+You receive a message with:
+- drug_names: comma separated drug names
+- countries: comma separated affected countries
+- disrupted_country: country where disruption occurred
 
-Parse these from the message and proceed.
+Parse these and follow ALL steps strictly.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STOCK FORECASTING ANALYSIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 STEP 1: Get top 3 critical drugs
-→ Call get_top_3_critical_drugs(drug_names=[list of drug names])
+→ Call get_top_3_critical_drugs(drug_names=[parsed list])
 → Present:
-
   Top 3 Critical Drugs (lowest stock):
   1. [drug_name] ([api_name])
   2. [drug_name] ([api_name])
   3. [drug_name] ([api_name])
 
-STEP 2: For each of the 3 drugs get top 3 affected countries
+STEP 2: For each drug get top 3 affected countries
 → Call get_top_3_affected_countries(
-    drug_name=[drug], countries=[list of countries])
+    drug_name, countries=[parsed list])
+→ Note country + population_served for each
 
-STEP 3: For each drug×country combo (9 total) calculate forecast
+STEP 3: For each drug×country combo (9 total):
 → Call calculate_stockout_forecast(
     drug_name, api_name, disrupted_country,
     destination_country, population_served,
@@ -281,58 +351,89 @@ STEP 3: For each drug×country combo (9 total) calculate forecast
   Days until stockout:     [days_until_stockout]
   Probability of shortage: [stockout_probability_percent]%
   Action deadline:         [action_deadline]
-
   Alternative suppliers:
   * [name] ([country]) — reliability [score], lead time [days] days
 
-STEP 4: Call financial_impact_agent
-→ Pass ALL 9 combos in one message:
-  "Calculate financial impact for these combos:
-   [list each combo with drug_name, destination_country,
+STEP 4: For each combo that has alternative_suppliers
+→ Call calculate_financial_and_pick_best(
+    drug_name, api_name, destination_country,
     population_served, disruption_duration_days=60,
-    suppliers list]"
-→ financial_impact_agent will return ranked suppliers with ROI
-
-STEP 5: For each combo call pick_best_supplier_for_combo(
-    drug_name, country=destination_country,
-    financial_rankings=[ranked suppliers from financial agent])
+    suppliers=[alternative_suppliers from Step 3])
 → Present:
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FINANCIAL ANALYSIS: [drug] | [country]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Cost of doing nothing:  $[cost_of_inaction_usd]
+    Direct health cost:   $[direct_health_cost_usd]
+    Emergency care:       $[emergency_care_cost_usd]
+    Productivity loss:    $[productivity_loss_usd]
+
+  Supplier options ranked:
+  1. [supplier_name] ([country])
+     ROI: [roi_percent]% | Cost: $[total_cost_usd]
+     Savings: $[projected_savings_usd]
+     → [recommendation]
+  2. [supplier_name] ([country])
+     ROI: [roi_percent]% | Cost: $[total_cost_usd]
+     → [recommendation]
 
   ─────────────────────────────────────
   SUPPLIER SELECTION: [drug] | [country]
   ─────────────────────────────────────
-  * [supplier] — ROI: [X]/100, Lead: [Y]/100, Reliability: [Z]/100 → [score]/100
-  ✅ SELECTED: [name] ([country]) — Score: [score]/100
+  Scoring:
+  * [supplier] — ROI: [roi_score]/100, Lead: [lead_time_score]/100, Reliability: [reliability_score_normalized]/100 → [combined_score]/100
+  ✅ SELECTED: [supplier_name] ([supplier_country])
+     Combined score: [combined_score]/100
+     Reason: [selection_reasoning]
 
-STEP 6: Call procurement_agent
-→ Pass ALL selections in one message:
-  "File purchase orders for these combos:
-   [list each combo with all supplier details]"
+STEP 5: After ALL 9 combos are processed
+→ Call procurement_agent with this message:
+"File purchase orders for these combos:
+[For each combo with a best_supplier:]
+- drug_name: [drug_name]
+  api_name: [api_name]
+  destination_country: [destination_country]
+  population_served: [patients_at_risk from result]
+  supplier_id: [best_supplier.supplier_id]
+  supplier_name: [best_supplier.supplier_name]
+  supplier_country: [best_supplier.supplier_country]
+  unit_cost_usd: [best_supplier.unit_cost_usd]
+  lead_time_days: [best_supplier.lead_time_days]
+  roi_percent: [best_supplier.roi_percent]
+  stockout_probability_percent: [stockout_probability_percent]
+  combined_score: [best_supplier.combined_score]"
 
-STEP 7: Present final summary:
+→ WAIT for procurement_agent to complete and return
+  all order IDs before presenting the summary
+→ Use the actual order_id from procurement_agent response
+→ NEVER use [ORDER_ID_NOT_AVAILABLE] in the summary
+→ Only present PHASE 2 COMPLETE after all orders confirmed
+
+STEP 6: Present final summary:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PHASE 2 COMPLETE — SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Drug | Country | Supplier | Qty | Cost | Order ID
-(all 9 rows)
+Drug | Country | Supplier | ROI% | Cost | Order ID
+(one row per combo)
 
 Total intervention cost: $[sum]
-Total cost avoided: $[sum]
-Orders filed: 9
+Total cost avoided:      $[sum of projected_savings_usd]
+Orders filed: [count]
 All orders require human approval.
 
-RULES:
-1. Always complete all 9 combos
-2. Never skip a combo
-3. Always show financial analysis before selection
-4. Always confirm order IDs""",
+CRITICAL RULES:
+1. ALWAYS call calculate_financial_and_pick_best for every combo
+2. NEVER skip financial analysis — it provides real ROI
+3. ALWAYS call procurement_agent after ALL combos
+4. Skip combos where alternative_suppliers is empty
+5. Complete ALL steps before finishing""",
     tools=[
         get_top_3_critical_drugs,
         get_top_3_affected_countries,
         calculate_stockout_forecast,
-        pick_best_supplier_for_combo,
-        AgentTool(agent=financial_impact_agent),
+        calculate_financial_and_pick_best,
         AgentTool(agent=procurement_agent),
     ],
 )

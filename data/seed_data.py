@@ -420,11 +420,11 @@ def generate_suppliers():
 
     # Guarantee critical APIs have European alternatives
     CRITICAL_APIS = [
-        "Amoxicillin", "Metformin", "Ciprofloxacin",
-        "Paracetamol", "Azithromycin", "Atorvastatin",
-        "Dexamethasone", "Insulin Glargine", "Ibuprofen",
-        "Ondansetron"
-    ]
+    "Amoxicillin", "Metformin", "Ciprofloxacin",
+    "Paracetamol", "Azithromycin", "Atorvastatin",
+    "Dexamethasone", "Metronidazole", "Ibuprofen",
+    "Ondansetron"
+]
 
     for i, company in enumerate(EUROPEAN_COMPANIES):
         country = company.split()[-1]
