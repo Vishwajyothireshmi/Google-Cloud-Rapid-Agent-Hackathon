@@ -191,7 +191,6 @@ def calculate_financial_and_pick_best(
             "error": f"No suppliers for {drug_name} | {destination_country}"
         }
 
-    # Calculate stockout cost
     affected_patients = int(population_served * 0.15)
     daily_cost_per_patient = 4.50
 
@@ -206,7 +205,6 @@ def calculate_financial_and_pick_best(
         direct_cost + emergency_cost + productivity_loss
     )
 
-    # Cost factors by supplier country
     country_cost_factor = {
         "Germany": 1.15, "Switzerland": 1.20,
         "Netherlands": 1.12, "Italy": 1.08,
@@ -219,7 +217,6 @@ def calculate_financial_and_pick_best(
     daily_consumption = max(1, affected_patients // 365)
     quantity_needed = daily_consumption * days_needed
 
-    # Score each supplier
     ranked = []
     for s in suppliers:
         supplier_country = s.get("country", "Unknown")
@@ -239,9 +236,7 @@ def calculate_financial_and_pick_best(
         savings = total_stockout_cost - total_cost
         roi = (savings / total_cost * 100) if total_cost > 0 else 0
 
-        # Combined score
         roi_score = min(100, roi / 100)
-        #roi_score = min(100, roi / 3)
         lead_time_score = max(0, 100 - lead_time)
         reliability_score = reliability * 100
         combined = (
@@ -292,7 +287,8 @@ def calculate_financial_and_pick_best(
             f"Selected {best['supplier_name']} ({best['supplier_country']}) "
             f"— Combined: {best['combined_score']}/100 "
             f"(ROI: {best['roi_score']:.0f}/100 [{best['roi_percent']:.0f}%], "
-            f"Lead time: {best['lead_time_score']:.0f}/100 [{best['lead_time_days']} days], "
+            f"Lead time: {best['lead_time_score']:.0f}/100 "
+            f"[{best['lead_time_days']} days], "
             f"Reliability: {best['reliability_score_normalized']:.0f}/100 "
             f"[{best['reliability_score']}])"
         )
@@ -305,7 +301,7 @@ def calculate_financial_and_pick_best(
 
 stock_forecasting_agent = Agent(
     name="stock_forecasting_agent",
-    description="Coordinates full supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, calculates financial impact, picks best supplier, triggers procurement orders",
+    description="Coordinates Phase 2 supply chain risk analysis — identifies top 3 critical drugs × top 3 countries, calculates financial impact, picks best supplier, files procurement orders",
     model=Gemini(
         model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -332,12 +328,11 @@ STEP 1: Get top 3 critical drugs
   2. [drug_name] ([api_name])
   3. [drug_name] ([api_name])
 
-STEP 2: For each drug get top 3 affected countries
+STEP 2: For each of the 3 drugs get top 3 affected countries
 → Call get_top_3_affected_countries(
     drug_name, countries=[parsed list])
-→ Note country + population_served for each
 
-STEP 3: For each drug×country combo (9 total):
+STEP 3: For each drug×country combo (up to 9 total):
 → Call calculate_stockout_forecast(
     drug_name, api_name, disrupted_country,
     destination_country, population_served,
@@ -370,11 +365,11 @@ STEP 4: For each combo that has alternative_suppliers
     Productivity loss:    $[productivity_loss_usd]
 
   Supplier options ranked:
-  1. [supplier_name] ([country])
+  1. [supplier_name] ([supplier_country])
      ROI: [roi_percent]% | Cost: $[total_cost_usd]
      Savings: $[projected_savings_usd]
      → [recommendation]
-  2. [supplier_name] ([country])
+  2. [supplier_name] ([supplier_country])
      ROI: [roi_percent]% | Cost: $[total_cost_usd]
      → [recommendation]
 
@@ -387,7 +382,7 @@ STEP 4: For each combo that has alternative_suppliers
      Combined score: [combined_score]/100
      Reason: [selection_reasoning]
 
-STEP 5: After ALL 9 combos are processed
+STEP 5: After ALL combos are processed
 → Call procurement_agent with this message:
 "File purchase orders for these combos:
 [For each combo with a best_supplier:]
@@ -404,11 +399,8 @@ STEP 5: After ALL 9 combos are processed
   stockout_probability_percent: [stockout_probability_percent]
   combined_score: [best_supplier.combined_score]"
 
-→ WAIT for procurement_agent to complete and return
-  all order IDs before presenting the summary
-→ Use the actual order_id from procurement_agent response
-→ NEVER use [ORDER_ID_NOT_AVAILABLE] in the summary
-→ Only present PHASE 2 COMPLETE after all orders confirmed
+→ WAIT for procurement_agent to return all order IDs
+→ Only present summary AFTER procurement confirms
 
 STEP 6: Present final summary:
 
@@ -424,11 +416,13 @@ Orders filed: [count]
 All orders require human approval.
 
 CRITICAL RULES:
-1. ALWAYS call calculate_financial_and_pick_best for every combo
-2. NEVER skip financial analysis — it provides real ROI
-3. ALWAYS call procurement_agent after ALL combos
-4. Skip combos where alternative_suppliers is empty
-5. Complete ALL steps before finishing""",
+1. Analyze 3 drugs × 3 countries = up to 9 combos
+2. ALWAYS call calculate_financial_and_pick_best for every combo
+3. NEVER skip financial analysis
+4. ALWAYS call procurement_agent after ALL combos
+5. Skip combos where alternative_suppliers is empty
+6. WAIT for procurement order IDs before presenting summary
+7. Complete ALL steps before finishing""",
     tools=[
         get_top_3_critical_drugs,
         get_top_3_affected_countries,

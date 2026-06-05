@@ -18,7 +18,6 @@ def calculate_financial_impact_per_combo(
         disruption_duration_days: int,
         suppliers: list[dict]) -> dict:
     """Calculate full financial impact for a drug×country combo.
-    Calculates stockout cost + switching cost + ROI for each supplier.
     Args:
         drug_name: Drug at risk
         country: Affected country
@@ -36,7 +35,6 @@ def calculate_financial_impact_per_combo(
     affected_patients = int(population_served * 0.15)
     daily_cost_per_patient = 4.50
 
-    # Cost of doing nothing
     direct_cost = (
         daily_cost_per_patient *
         affected_patients *
@@ -48,7 +46,6 @@ def calculate_financial_impact_per_combo(
         direct_cost + emergency_cost + productivity_loss
     )
 
-    # Cost factors by country
     country_cost_factor = {
         "Germany": 1.15, "Switzerland": 1.20,
         "Netherlands": 1.12, "Italy": 1.08,
@@ -89,8 +86,6 @@ def calculate_financial_impact_per_combo(
             "lead_time_days": lead_time,
             "quantity_needed": quantity_needed,
             "unit_cost_usd": round(unit_cost, 2),
-            "switching_cost_usd": round(switching_cost, 2),
-            "logistics_cost_usd": round(logistics_cost, 2),
             "total_cost_usd": round(total_cost, 2),
             "cost_of_inaction_usd": round(total_stockout_cost, 2),
             "projected_savings_usd": round(savings, 2),
@@ -134,7 +129,7 @@ def calculate_financial_impact_per_combo(
 
 financial_impact_agent = Agent(
     name="financial_impact_agent",
-    description="Calculates financial impact per drug×country combo including stockout cost, switching cost and ROI for each supplier. Returns ranked suppliers to stock forecasting agent.",
+    description="Calculates financial impact per drug×country combo including stockout cost, switching cost and ROI for each supplier",
     model=Gemini(
         model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
@@ -142,44 +137,15 @@ financial_impact_agent = Agent(
     instruction="""You are a Financial Impact Agent specializing
 in healthcare supply chain economics.
 
-You receive a list of drug×country combos with supplier options
-from the stock_forecasting_agent.
+You receive drug×country combos with supplier options.
 
-For EACH drug×country combo:
+For EACH combo:
 
-STEP 1: Calculate financial impact
-→ Call calculate_financial_impact_per_combo(
+STEP 1: Call calculate_financial_impact_per_combo(
     drug_name, country, population_served,
     disruption_duration_days=60, suppliers)
 
-STEP 2: Present results in this EXACT format:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FINANCIAL ANALYSIS: [drug_name] | [country]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Cost of doing nothing (stockout):
-  Direct health cost:    $[direct_health_cost_usd]
-  Emergency care:        $[emergency_care_cost_usd]
-  Productivity loss:     $[productivity_loss_usd]
-  ─────────────────────────────────────
-  TOTAL INACTION COST:   $[cost_of_stockout_usd]
-
-Supplier options ranked by ROI:
-  1. [supplier_name] ([supplier_country])
-     Switching cost:      $[total_cost_usd]
-     Projected savings:   $[projected_savings_usd]
-     ROI:                 [roi_percent]%
-     → [recommendation]
-
-  2. [supplier_name] ([supplier_country])
-     Switching cost:      $[total_cost_usd]
-     Projected savings:   $[projected_savings_usd]
-     ROI:                 [roi_percent]%
-     → [recommendation]
-
-STEP 3: After calculating all combos present
-your complete results clearly with all numbers.
+STEP 2: Present results clearly with all numbers.
 The calling agent will automatically receive
 your response — do not try to call any other agent.
 

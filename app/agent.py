@@ -7,7 +7,6 @@ from google.adk.apps import App
 from google.adk.models import Gemini
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 from mcp import StdioServerParameters
 import google.auth
@@ -72,7 +71,7 @@ def detect_geopolitical_event(country: str) -> dict:
 
 # ── Tool 2 ────────────────────────────────────────────────────────────────────
 def find_affected_apis(country: str) -> list:
-    """Query MongoDB suppliers for all APIs manufactured in a country.
+    """Query MongoDB suppliers for all unique APIs manufactured in a country.
     Args:
         country: Country name to find API suppliers for
     Returns:
@@ -80,16 +79,14 @@ def find_affected_apis(country: str) -> list:
     """
     trace_step("find_apis", {"country": country})
     db = get_db()
-    results = list(db.suppliers.find(
+    results = db.suppliers.distinct(
+        "api_name",
         {
             "country": country,
             "type": "API_manufacturer",
             "export_status": "active"
-        },
-        {"_id": 0, "api_name": 1, "name": 1,
-         "reliability_score": 1, "lead_time_days": 1,
-         "warehouse_stock_kg": 1}
-    ))
+        }
+    )
     return results
 
 # ── Tool 3 ────────────────────────────────────────────────────────────────────
@@ -247,7 +244,7 @@ STEP 1: detect_geopolitical_event(country)
   conflicts, or port closures affecting that country.
 
 STEP 2: find_affected_apis(country)
-  Find all pharmaceutical APIs manufactured in
+  Find all unique pharmaceutical APIs manufactured in
   the affected country using MongoDB suppliers collection.
 
 STEP 3: find_drugs_at_risk(api_names)
@@ -317,20 +314,19 @@ STRICT RULES:
    to Phase 2 — never stop there
 
 PHASE 2 — ADVANCED ANALYSIS:
-After presenting Phase 1 report immediately call
-stock_forecasting_agent with this EXACT message:
+After presenting Phase 1 report, transfer to
+stock_forecasting_agent with this message:
 
 "drug_names: [comma separated drug names from Step 3 - max 10]
 countries: [comma separated countries from Step 5]
 disrupted_country: [country from Step 1]"
 
-Example format:
-"drug_names: Glucophage,Formet,Ciprobay,Amoxil,Flagyl,Azee,Panadol,Lipitor,Zithromax,Keflex
-countries: Bangladesh,Nepal,Pakistan,Myanmar,Sri Lanka,Nigeria,Kenya,Ethiopia,Tanzania,Uganda
+Example:
+"drug_names: Glucophage,Formet,Ciprobay,Amoxil,Flagyl,Azee,Panadol
+countries: Bangladesh,Nepal,Pakistan,Nigeria,Ethiopia
 disrupted_country: India"
 
 Replace with actual values from your analysis.
-The stock_forecasting_agent handles everything else.
 """,
     tools=[
         detect_geopolitical_event,
@@ -341,11 +337,8 @@ The stock_forecasting_agent handles everything else.
         find_alternative_suppliers,
         log_incident_report,
         mongodb_toolset,
-        AgentTool(
-            agent=stock_forecasting_agent,
-            skip_summarization=True
-        ),
     ],
+    sub_agents=[stock_forecasting_agent],
 )
 
 app = App(
