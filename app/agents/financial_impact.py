@@ -1,4 +1,6 @@
 # ruff: noqa
+import math
+
 from google.adk.agents import Agent
 from google.adk.models import Gemini
 from google.genai import types
@@ -82,6 +84,7 @@ def calculate_financial_impact_per_combo(
         total_cost = switching_cost + logistics_cost
         savings = total_stockout_cost - total_cost
         roi = (savings / total_cost * 100) if total_cost > 0 else 0
+        display_roi = min(100, math.log10(max(1, roi)) * 20)
 
         ranked.append({
             "supplier_id":           supplier_id,
@@ -94,6 +97,7 @@ def calculate_financial_impact_per_combo(
             "cost_of_inaction_usd":  round(total_stockout_cost, 2),
             "projected_savings_usd": round(savings, 2),
             "roi_percent":           round(roi, 1),
+            "display_roi":           round(display_roi, 1),
             "recommendation": (
                 "STRONGLY RECOMMENDED" if roi > 200
                 else "RECOMMENDED" if roi > 100
@@ -140,15 +144,18 @@ You receive combos in plain text. For EACH combo:
 Present results for each combo exactly like this:
 
 ---
-
+[For EVERY combo write:]
 ## FINANCIAL ANALYSIS: [drug_name] | [country]
 
 **Cost of doing nothing:** $[cost_of_stockout_usd]
 
 Suppliers ranked by ROI:
-1. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
-2. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
-3. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
+1. [supplier_name] ([supplier_country]) | Cost: $[total_cost_usd] | ROI: [display_roi]% | [recommendation]
+2. [supplier_name] ([supplier_country]) | Cost: $[total_cost_usd] | ROI: [display_roi]% | [recommendation]
+3. [supplier_name] ([supplier_country]) | Cost: $[total_cost_usd] | ROI: [display_roi]% | [recommendation]
+
+IMPORTANT: Use display_roi field NOT roi_percent field for the ROI value shown above.
+display_roi is the normalized 0-100 score. roi_percent is the raw value — never show it.
 
 ---
 
@@ -167,7 +174,8 @@ RULES:
 - Parse plain text input — do not expect JSON
 - Calculate for ALL combos received
 - Never call any other agent
-- Return complete structured summary to main agent""",
+- Return complete structured summary to main agent
+- ALWAYS use display_roi for ROI display, NEVER use roi_percent in the display section""",
 tools=[
         calculate_financial_impact_per_combo,
     ],

@@ -328,13 +328,6 @@ GEOPOLITICAL HEALTH SUPPLY CHAIN REPORT
 Severity: [severity]
 [one sentence description]
 
-**APIs AT RISK:**
-Copy EXACTLY what find_affected_apis tool returned.
-Do NOT use your own knowledge. Do NOT summarize.
-List every single API name from the tool result.
-Example if tool returned ['Metformin', 'Azithromycin', 'Paracetamol'...]:
-Metformin, Azithromycin, Paracetamol, [all others...]
-
 **DRUGS AFFECTED:**
 Copy EXACTLY what find_drugs_at_risk tool returned.
 Do NOT use your own knowledge. Do NOT summarize.
@@ -342,8 +335,8 @@ Build a markdown table with two columns.
 One row per API. If multiple drugs share the same API,
 list them comma-separated in the Drugs column.
 
-| API  | Drugs |
-|--------------|---------------------------|
+| API at Risk                         | Associated Drugs |
+|-------------------------------------|---------------------------|
 | [active_ingredient] | [drug_name], [drug_name] |
 | [active_ingredient] | [drug_name] |
 ... one row per unique API, all rows from tool results ...
@@ -379,23 +372,41 @@ STEP 8: Call stock_forecasting_agent
     countries: [comma separated from Step 4]
     disrupted_country: [country from Step 1]"
 → Receive: FORECASTING COMPLETE message with all combos
+→ Receive: FORECASTING COMPLETE message with all combos
 → Write STOCKOUT FORECAST RESULTS block BEFORE calling Step 9. DO NOT STOP.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STOCKOUT FORECAST RESULTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**TOP 3 CRITICAL DRUGS IDENTIFIED:**
+1. Drug Name: [drug_name] . Avg supply: [avg_supply_across_countries] days
+2. Drug Name: [drug_name] . Avg supply: [avg_supply_across_countries] days
+3. Drug Name: [drug_name] . Avg supply: [avg_supply_across_countries] days
+
 [For EVERY combo write:]
+
 ─────────────────────────────────────
-**Drug:** [drug_name] | **Country:** [country]
-─────────────────────────────────────
-Population at risk:      [patients_at_risk]
-Days until stockout:     [days_until_stockout]
-Probability of shortage: [probability]%
-Action deadline:         [action_deadline]
+Drug:[drug_name] | Affected Country:[country]
+
+Population at risk:      [patients_at_risk].
+Days until stockout:     [days_until_stockout].
+Probability of shortage: [probability]%".
+Action deadline:         [action_deadline].
+
 Top 3 suppliers (lead time + reliability):
-* [supplier_name] ([country]) — reliability [score], lead time [days] days
-* [supplier_name] ([country]) — reliability [score], lead time [days] days
-* [supplier_name] ([country]) — reliability [score], lead time [days] days
+
+Supplier Name:[supplier_name] 
+Country:[country]
+reliability [score] | lead time [days] days
+
+Supplier Name:[supplier_name] 
+Country:([country])
+reliability [score] | lead time [days] days
+
+Supplier Name:[supplier_name] 
+Country:([country])
+reliability [score] | lead time [days] days
 
 STEP 9: Call financial_impact_agent with this plain text message
 (NO JSON, NO code — just plain text):
@@ -412,11 +423,11 @@ combo 2: drug=[drug_name], country=[country], population=[population_served], di
 FINANCIAL ANALYSIS RESULTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [For EVERY combo write:]
-FINANCIAL ANALYSIS: [drug_name] | [country]
-Cost of doing nothing:  $[cost_of_stockout_usd]
+Drug name: [drug_name] | Country: [country] | Cost of doing nothing:  $[cost_of_stockout_usd]
+
 Suppliers ranked by ROI:
-1. [supplier_name] ([country]) ROI: [roi]% | Cost: $[cost] → [recommendation]
-2. [supplier_name] ([country]) ROI: [roi]% | Cost: $[cost] → [recommendation]
+1. Supplier Name: [supplier_name] ([supplier_country]) | Cost: $[cost] | ROI: [display_roi]% → [recommendation] 
+2. Supplier Name: [supplier_name] ([supplier_country]) | Cost: $[cost] | ROI: [display_roi]% → [recommendation]
 
 STEP 10: Call pick_best_for_all_combos() ONCE with ALL combos
 → Pass: combos=[list of all combos, each with:
@@ -430,9 +441,11 @@ STEP 10: Call pick_best_for_all_combos() ONCE with ALL combos
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SUPPLIER SELECTION RESULTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[For EVERY combo write on one line:]
-[Drug] | [Country] → [supplier_name] ([supplier_country])
-  Score: [combined_score]/100 (ROI: [roi_score] | Lead: [lead_time_score] | Reliability: [reliability_score_normalized])
+
+| Drug | Country | Best Supplier | Country | Score | ROI | Lead | Reliability |
+|------|---------|--------------|---------|-------|-----|------|-------------|
+| [drug_name] | [country] | [supplier_name] | [supplier_country] | [combined_score]/100 | [roi_score] | [lead_time_score] | [reliability_score_normalized] |
+[one row per combo]
 
 STEP 11: Call procurement_agent with this plain text message
 (one combo per line, NO JSON arrays):
@@ -445,14 +458,15 @@ combo 2 — drug: [drug_name]...
 STEP 12: Write final summary:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHASE 2 COMPLETE — SUMMARY
+Final Order List
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-| Drug | Country | Supplier | Units | Cost | Order ID |
-|------|---------|----------|-------|------|----------|
-| [drug] | [country] | [supplier] | [qty] | $[cost] | [id] |
+| Drug                | Country                | Supplier           | Units         | Cost            | Order ID        |
+|---------------------|------------------------|--------------------|---------------|-----------------|-----------------|
+| [drug]|               [country]|               [supplier] |          [qty] |        $[cost] |          [id] |
 
 Orders filed: [count]
+
 ⚠️ All orders require human approval before execution.
 
 STRICT RULES:
@@ -474,7 +488,10 @@ STRICT RULES:
 16. ALWAYS use tool return values for APIs AT RISK and DRUGS AFFECTED
 17. NEVER use your own knowledge to fill these fields
 18. Copy tool results exactly — do not abbreviate or summarize
-19. suppliers_with_roi in Step 10 uses ranked_suppliers from Step 9 not Step 8""",
+19. suppliers_with_roi in Step 10 uses ranked_suppliers from Step 9 not Step 8
+20. In STOCKOUT FORECAST RESULTS write each field on a completely separate line with a newline after each
+21. NEVER write Population at risk, Days until stockout, Probability, Action deadline on the same line
+22. SUPPLIER SELECTION RESULTS must be a markdown table — never plain text""",
     tools=[
         detect_geopolitical_event,
         find_affected_apis,
