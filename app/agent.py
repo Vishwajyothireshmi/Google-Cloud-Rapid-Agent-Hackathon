@@ -110,26 +110,14 @@ def find_drugs_at_risk(api_names: list[str]) -> list:
          "source_countries": 1}
     ))
 
-
 # ── Tool 4 ────────────────────────────────────────────────────────────────────
-def assess_inventory_risk(drug_names: list[str]) -> list:
-    """Check current inventory levels for affected drugs.
-    Args:
-        drug_names: List of drug names to check
-    Returns:
-        List of drugs with stock details sorted by days of supply
-    """
-    trace_step("assess_inventory", {"drugs": str(drug_names)})
+def get_importing_countries(source_country: str) -> list:
+    trace_step("get_importing_countries", {"source": source_country})
     db = get_db()
-    return list(db.inventory.find(
-        {"drug_name": {"$in": drug_names}},
-        {"_id": 0, "drug_name": 1, "hospital_id": 1,
-         "hospital_name": 1, "country": 1,
-         "current_stock": 1, "daily_consumption": 1,
-         "days_of_supply": 1, "reorder_threshold": 1}
-    ).sort("days_of_supply", 1))
-
-
+    return db.health_systems.distinct(
+        "country",
+        {"import_dependency": source_country}
+    )
 # ── Tool 5 ────────────────────────────────────────────────────────────────────
 def find_vulnerable_populations(
         drug_names: list[str],
@@ -155,6 +143,7 @@ def find_vulnerable_populations(
 
 
 # ── Tool 6 ────────────────────────────────────────────────────────────────────
+
 def find_alternative_suppliers(
         api_name: str,
         exclude_country: str) -> list:
@@ -317,74 +306,87 @@ PHASE 1 — RISK ASSESSMENT
 STEP 1: detect_geopolitical_event(country)
 STEP 2: find_affected_apis(country)
 STEP 3: find_drugs_at_risk(api_names)
-STEP 4: assess_inventory_risk(drug_names)
+STEP 4: get_importing_countries(source_country)
+  Pass the disrupted country from Step 1.
+  Returns the list of countries importing APIs from that source.
 STEP 5: find_vulnerable_populations(drug_names, countries)
-  For India: [Bangladesh, Nepal, Pakistan, Myanmar,
-    Sri Lanka, Nigeria, Kenya, Ethiopia, Tanzania, Uganda]
-  For China: [Cambodia, Laos, Myanmar, Nigeria,
-    Kenya, Bangladesh, Ethiopia]
+  drug_names: from Step 3
+  countries: from Step 4
+  Then aggregate population_served by country from results.
 STEP 6: find_alternative_suppliers(api_name, exclude_country)
   For top 5 most critical APIs only
 STEP 7: log_incident_report(event_type, country, severity, summary)
 
 After Step 7 write Phase 1 report:
+→ Write BEFORE calling next agent:
 
 ══════════════════════════════════════════
 GEOPOLITICAL HEALTH SUPPLY CHAIN REPORT
 ══════════════════════════════════════════
-EVENT DETECTED:
+**EVENT DETECTED:**
 [event_type] in [country]
 Severity: [severity]
 [one sentence description]
 
-APIs AT RISK:
+**APIs AT RISK:**
 Copy EXACTLY what find_affected_apis tool returned.
 Do NOT use your own knowledge. Do NOT summarize.
 List every single API name from the tool result.
 Example if tool returned ['Metformin', 'Azithromycin', 'Paracetamol'...]:
 Metformin, Azithromycin, Paracetamol, [all others...]
 
-DRUGS AFFECTED:
+**DRUGS AFFECTED:**
 Copy EXACTLY what find_drugs_at_risk tool returned.
 Do NOT use your own knowledge. Do NOT summarize.
-List every drug with its API:
-[drug_name] — made from [active_ingredient]
-[repeat for ALL drugs returned by the tool]
+Build a markdown table with two columns.
+One row per API. If multiple drugs share the same API,
+list them comma-separated in the Drugs column.
 
-DRUGS AFFECTED:
-Copy EXACTLY what find_drugs_at_risk tool returned.
-Do NOT use your own knowledge. Do NOT summarize.
-List every drug with its API:
-[drug_name] — made from [active_ingredient]
-[repeat for ALL drugs returned by the tool]
+| API  | Drugs |
+|--------------|---------------------------|
+| [active_ingredient] | [drug_name], [drug_name] |
+| [active_ingredient] | [drug_name] |
+... one row per unique API, all rows from tool results ...
 
 
-POPULATIONS EXPOSED:
-[Country]: [sum population_served] patients
+**POPULATIONS EXPOSED:**
 
-ALTERNATIVE SUPPLIERS:
-[API] — [Country] (lead_time: X days)
+| Affected Country | Affected Population |
+|------------------|---------------------|
+| [country] | [summed population_served] |
 
-INCIDENT LOGGED: [incident_id]
+
+**ALTERNATIVE SUPPLIERS:**
+Build a markdown table with two columns.
+One row per API. List all suppliers returned by
+find_alternative_suppliers for that API,
+comma-separated in the Suppliers column.
+
+| API | Alternative Suppliers |
+|-----|-----------------------|
+| [api_name] | [supplier name] ([country]), [supplier name] ([country]) |
+... one row per API ...
+
+**INCIDENT LOGGED:** [incident_id]
 ══════════════════════════════════════════
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PHASE 2 — SUPPLY CHAIN RESPONSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 STEP 8: Call stock_forecasting_agent
 → Send: "drug_names: [comma separated from Step 3]
-  countries: [comma separated from Step 5]
-  disrupted_country: [country from Step 1]"
-→ Receive: combos with top 3 suppliers per combo
-→ Write BEFORE calling next agent:
+    countries: [comma separated from Step 4]
+    disrupted_country: [country from Step 1]"
+→ Receive: FORECASTING COMPLETE message with all combos
+→ Write STOCKOUT FORECAST RESULTS block BEFORE calling Step 9. DO NOT STOP.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STOCKOUT FORECAST RESULTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [For EVERY combo write:]
 ─────────────────────────────────────
-Drug: [drug_name] | Country: [country]
+**Drug:** [drug_name] | **Country:** [country]
 ─────────────────────────────────────
 Population at risk:      [patients_at_risk]
 Days until stockout:     [days_until_stockout]
@@ -400,9 +402,11 @@ STEP 9: Call financial_impact_agent with this plain text message
 "Calculate financial impact for these combos:
 combo 1: drug=[drug_name], country=[country], population=[population_served], disruption_days=60, suppliers: [supplier_name] ([supplier_country]) lead=[days] reliability=[score], [supplier_name] ([supplier_country]) lead=[days] reliability=[score]
 combo 2: drug=[drug_name], country=[country], population=[population_served], disruption_days=60, suppliers: [supplier_name] ([supplier_country]) lead=[days] reliability=[score]
-[one line per combo, fill in actual values from Step 8]"
+[one line per combo, fill in actual values from Step 7]"
 → Receive: ROI analysis per supplier per combo
-→ Write BEFORE calling next agent:
+→ Write Financial analysis results BEFORE calling next agent:
+
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FINANCIAL ANALYSIS RESULTS
@@ -410,9 +414,6 @@ FINANCIAL ANALYSIS RESULTS
 [For EVERY combo write:]
 FINANCIAL ANALYSIS: [drug_name] | [country]
 Cost of doing nothing:  $[cost_of_stockout_usd]
-  Direct health cost:   $[direct_health_cost_usd]
-  Emergency care:       $[emergency_care_cost_usd]
-  Productivity loss:    $[productivity_loss_usd]
 Suppliers ranked by ROI:
 1. [supplier_name] ([country]) ROI: [roi]% | Cost: $[cost] → [recommendation]
 2. [supplier_name] ([country]) ROI: [roi]% | Cost: $[cost] → [recommendation]
@@ -421,7 +422,7 @@ STEP 10: Call pick_best_for_all_combos() ONCE with ALL combos
 → Pass: combos=[list of all combos, each with:
     drug_name, country, api_name,
     patients_at_risk, stockout_probability_percent,
-    suppliers_with_roi: [ranked_suppliers from Step 9
+    suppliers_with_roi: [ranked_suppliers from Step 8
       each with: supplier_id, supplier_name, supplier_country,
       roi_percent, lead_time_days, reliability_score]]
 → Write ONE combined output after the single call:
@@ -430,7 +431,7 @@ STEP 10: Call pick_best_for_all_combos() ONCE with ALL combos
 SUPPLIER SELECTION RESULTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [For EVERY combo write on one line:]
-[Drug] | [Country] → ✅ [supplier_name] ([supplier_country])
+[Drug] | [Country] → [supplier_name] ([supplier_country])
   Score: [combined_score]/100 (ROI: [roi_score] | Lead: [lead_time_score] | Reliability: [reliability_score_normalized])
 
 STEP 11: Call procurement_agent with this plain text message
@@ -458,27 +459,32 @@ STRICT RULES:
 1. Never use CRITICAL, HIGH, MEDIUM in Phase 1
 2. Never mention hospital IDs
 3. Always sum population per country not per hospital
-4. Complete ALL Phase 1 steps before Phase 2
-5. ALWAYS write STOCKOUT FORECAST RESULTS after Step 8
-6. ALWAYS write FINANCIAL ANALYSIS RESULTS after Step 9
-7. Call pick_best_for_all_combos() ONCE with ALL combos
+4. Complete ALL Phase 1 steps (1-7) before Phase 2
+5. ALWAYS write STOCKOUT FORECAST RESULTS after Step 8 before calling Step 9
+6. ALWAYS write FINANCIAL ANALYSIS RESULTS after Step 9 before calling Step 10
+7. Call pick_best_for_all_combos() ONCE in Step 10 with ALL combos
 8. NEVER pass JSON arrays to procurement_agent — use plain text
-9. ALWAYS call procurement_agent after supplier selection
-10. NEVER stop after Phase 1 — Phase 2 is mandatory
-11. Write output at EACH step before proceeding
-12. ALWAYS use tool return values for APIs AT RISK and DRUGS AFFECTED
-13. NEVER use your own knowledge to fill these fields
-14. Copy tool results exactly — do not abbreviate or summarize""",
+9. ALWAYS call procurement_agent in Step 11 after Step 10
+10. NEVER stop after Phase 1 — Phase 2 steps 8-12 are ALL mandatory
+11. NEVER stop after Step 8 — immediately continue to Step 9
+12. NEVER stop after Step 9 — immediately continue to Step 10
+13. NEVER stop after Step 10 — immediately continue to Step 11
+14. NEVER stop after Step 11 — immediately continue to Step 12
+15. Write output block at EACH step before proceeding to next
+16. ALWAYS use tool return values for APIs AT RISK and DRUGS AFFECTED
+17. NEVER use your own knowledge to fill these fields
+18. Copy tool results exactly — do not abbreviate or summarize
+19. suppliers_with_roi in Step 10 uses ranked_suppliers from Step 9 not Step 8""",
     tools=[
         detect_geopolitical_event,
         find_affected_apis,
         find_drugs_at_risk,
-        assess_inventory_risk,
         find_vulnerable_populations,
         find_alternative_suppliers,
         log_incident_report,
         pick_best_for_all_combos,
         mongodb_toolset,
+        get_importing_countries,
         AgentTool(agent=stock_forecasting_agent),
         AgentTool(agent=financial_impact_agent),
         AgentTool(agent=procurement_agent),

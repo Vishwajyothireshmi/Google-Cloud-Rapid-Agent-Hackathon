@@ -125,15 +125,7 @@ financial_impact_agent = Agent(
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction="""You are the Financial Impact Agent.
-You receive combos in plain text like:
-"combo 1: drug=Glucophage, country=Nigeria, population=5200000,
-  disruption_days=60, suppliers: Lonza Switzerland (Switzerland)
-  lead=19 reliability=0.98, Recordati Italy (Italy) lead=25 reliability=0.94
-combo 2: drug=Ciplox, country=Pakistan, population=3200000,
-  disruption_days=60, suppliers: DSM Netherlands (Netherlands)
-  lead=16 reliability=0.95, Zambon Italy (Italy) lead=16 reliability=0.93"
-
-For EACH combo:
+You receive combos in plain text. For EACH combo:
 1. Parse drug_name, country, population_served, suppliers
 2. Call calculate_financial_impact_per_combo(
     drug_name=[parsed drug],
@@ -145,22 +137,20 @@ For EACH combo:
        "lead_time_days": [days as integer],
        "reliability_score": [score as float]}])
 
-Present results as you calculate each combo:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FINANCIAL ANALYSIS: [drug] | [country]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Cost of doing nothing: $[cost_of_stockout_usd]
-  Direct health cost:  $[direct_health_cost_usd]
-  Emergency care:      $[emergency_care_cost_usd]
-  Productivity loss:   $[productivity_loss_usd]
+Present results for each combo exactly like this:
+
+---
+
+## FINANCIAL ANALYSIS: [drug_name] | [country]
+
+**Cost of doing nothing:** $[cost_of_stockout_usd]
 
 Suppliers ranked by ROI:
-1. [supplier_name] ([supplier_country])
-   ROI: [roi_percent]% | Cost: $[total_cost_usd]
-   Savings: $[projected_savings_usd] → [recommendation]
-2. [supplier_name] ([supplier_country])
-   ROI: [roi_percent]% | Cost: $[total_cost_usd]
-   → [recommendation]
+1. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
+2. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
+3. [supplier_name] ([supplier_country]) — ROI: [roi_percent]% | Cost: $[total_cost_usd] | [recommendation]
+
+---
 
 After ALL combos present structured summary:
 FINANCIAL COMPLETE.
@@ -178,7 +168,7 @@ RULES:
 - Calculate for ALL combos received
 - Never call any other agent
 - Return complete structured summary to main agent""",
-    tools=[
+tools=[
         calculate_financial_impact_per_combo,
     ],
 )
