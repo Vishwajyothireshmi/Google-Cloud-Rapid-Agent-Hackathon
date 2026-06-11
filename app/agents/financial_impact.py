@@ -4,8 +4,8 @@ import math
 from google.adk.agents import Agent
 from google.adk.models import Gemini
 from google.genai import types
-from integrations.mongodb_client import get_db
-from integrations.arize_client import trace_step
+from app.integrations.mongodb_client import get_db
+from app.integrations.arize_client import trace_step
 
 
 def calculate_financial_impact_per_combo(

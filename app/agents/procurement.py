@@ -7,8 +7,8 @@ from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.genai import types
 from mcp import StdioServerParameters
-from integrations.mongodb_client import get_db
-from integrations.arize_client import trace_step
+from app.integrations.mongodb_client import get_db
+from app.integrations.arize_client import trace_step
 
 procurement_mongodb_toolset = McpToolset(
     connection_params=StdioConnectionParams(

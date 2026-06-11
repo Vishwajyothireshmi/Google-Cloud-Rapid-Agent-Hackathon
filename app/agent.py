@@ -20,9 +20,9 @@ os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
-from integrations.mongodb_client import get_db
-from integrations.elastic_client import get_elastic
-from integrations.arize_client import trace_step
+from app.integrations.mongodb_client import get_db
+from app.integrations.elastic_client import get_elastic
+from app.integrations.arize_client import trace_step
 
 from app.agents.stock_forecasting import stock_forecasting_agent
 from app.agents.financial_impact import financial_impact_agent
